@@ -8,7 +8,7 @@ const START = "<!-- ai-harness:start -->";
 const END = "<!-- ai-harness:end -->";
 
 const REQUIRED_DIRS = [
-  ".ai/plans", ".ai/reviews", ".ai/handoffs", ".ai/decisions", ".ai/retrieval-notes", ".ai/rag", ".ai/prompts",
+  ".ai/plans", ".ai/reviews", ".ai/handoffs", ".ai/decisions", ".ai/retrieval-notes", ".ai/rag", ".ai/prompts", ".ai/tasks",
   ".claude/skills/implement-plan", ".claude/skills/retrieve-context", ".claude/skills/verify-change", ".claude/skills/prepare-codex-review",
   ".claude/hooks", "docs/architecture", "docs/adr", "docs/knowledge", "docs/runbooks", "scripts/rag"
 ];
@@ -143,6 +143,7 @@ printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext"
 `, safePolicy, Boolean(options.dryRun), changes);
 
   await writeManaged(root, ".ai/rag/index.jsonl", "", safePolicy, Boolean(options.dryRun), changes);
+  await writeManaged(root, ".ai/tasks/.gitkeep", "", safePolicy, Boolean(options.dryRun), changes);
   await writeManaged(root, ".ai/rag/manifest.json", JSON.stringify({ version: 1, chunks: 0 }, null, 2) + "\n", safePolicy, Boolean(options.dryRun), changes);
 
   if (!options.dryRun) {

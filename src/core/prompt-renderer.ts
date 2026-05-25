@@ -1,0 +1,7 @@
+export function renderClaudePrompt(taskId: string) {
+  return `# Claude implementation prompt for ${taskId}\n\nRead ONLY:\n- AGENTS.md\n- CLAUDE.md\n- .ai/tasks/${taskId}/prompt.md\n- .ai/tasks/${taskId}/context.md\n\nThen:\n1. Implement the task on the current branch.\n2. Use ai-harness search before broad reads.\n3. Inspect files/line-ranges from context.md first.\n4. Keep diff focused.\n5. Run relevant tests.\n6. Write implementation notes to .ai/tasks/${taskId}/implementation.md\n7. Write test results to .ai/tasks/${taskId}/tests.md\n8. Do not create a PR.\n9. Do not expand scope without recording why.\n`;
+}
+
+export function renderCodexReviewPrompt(taskId: string, baseBranch: string) {
+  return `# Codex review prompt for ${taskId}\n\nReview only current task scope. Read:\n- AGENTS.md\n- .ai/tasks/${taskId}/prompt.md\n- .ai/tasks/${taskId}/context.md\n- .ai/tasks/${taskId}/implementation.md\n- .ai/tasks/${taskId}/tests.md\n- current git diff against ${baseBranch}\n\nWrite output to .ai/tasks/${taskId}/codex-review.md using this exact structure:\n# Codex review for ${taskId}\n## Verdict\n- approve | request-changes | needs-hardening\n## Required fixes\n## Suggested hardening\n## Test gaps\n## Security review\n## Scope review\n## Instructions for Claude\n\nDo not rewrite implementation. Do not expand scope. Focus correctness, security, tests, maintainability, and scope control.\n`;
+}
