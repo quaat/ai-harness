@@ -20,4 +20,6 @@ export type ScaffoldChange = {
   path: string;
   action: "create" | "update" | "skip";
   reason: string;
+  before?: string;
+  after?: string;
 };
