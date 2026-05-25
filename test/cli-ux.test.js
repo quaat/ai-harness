@@ -37,6 +37,7 @@ async function setupHarnessDir() {
   }
   await fs.writeFile(path.join(dir, '.claude/hooks/block-dangerous-bash.sh'), '#!/usr/bin/env bash');
   await fs.writeFile(path.join(dir, '.claude/hooks/after-edit-check.sh'), '#!/usr/bin/env bash');
+  await fs.writeFile(path.join(dir, '.claude/hooks/nudge-retrieve-context.sh'), '#!/usr/bin/env bash');
   await fs.writeFile(path.join(dir, '.ai/rag/index.jsonl'), '{}\n');
   await fs.writeFile(path.join(dir, '.ai/rag/manifest.json'), '{}');
   return dir;
@@ -53,11 +54,13 @@ test('doctor supports human-readable default and json mode', async () => {
   const human = logs.join('\n');
   assert.match(human, /ai-harness doctor/);
   assert.match(human, /Required files:/);
+  assert.match(human, /nudge-retrieve-context\.sh/);
   assert.match(human, /Result:/);
 
   process.chdir(dir);
   const jsonLogs = [];
   console.log = (m) => jsonLogs.push(String(m));
   try { await doctorCommand({ json: true }); } finally { console.log = old; process.chdir(cwd); }
-  assert.doesNotThrow(() => JSON.parse(jsonLogs.join('\n')));
+  const parsed = JSON.parse(jsonLogs.join('\n'));
+  assert.equal(parsed.checks.hooks['.claude/hooks/nudge-retrieve-context.sh'], true);
 });

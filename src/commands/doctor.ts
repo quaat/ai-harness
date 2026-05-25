@@ -4,7 +4,7 @@ import YAML from "yaml";
 
 const requiredFiles = ["AGENTS.md", "CLAUDE.md", "ai-harness.config.yaml", ".claude/settings.json"];
 const skills = ["implement-plan", "retrieve-context", "verify-change", "prepare-codex-review"];
-const hooks = [".claude/hooks/block-dangerous-bash.sh", ".claude/hooks/after-edit-check.sh"];
+const hooks = [".claude/hooks/block-dangerous-bash.sh", ".claude/hooks/after-edit-check.sh", ".claude/hooks/nudge-retrieve-context.sh"];
 const ragFiles = [".ai/rag/index.jsonl", ".ai/rag/manifest.json"];
 
 export async function doctorCommand(opts: { json?: boolean } = {}) {

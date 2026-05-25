@@ -145,12 +145,15 @@ test('task status human output is formatted and json output remains valid', asyn
   assert.match(out, /Artifacts:/);
   assert.match(out, /Checks:/);
   assert.match(out, /Next:/);
+  assert.match(out, /ai-harness task context statusx/);
+  assert.doesNotMatch(out, /ai-harness task ai-harness task/);
 
   const jsonLogs = [];
   console.log = (m) => jsonLogs.push(String(m));
   try { await runTask(['status','statusx','--json'], dir); }
   finally { console.log = old; }
-  assert.doesNotThrow(() => JSON.parse(jsonLogs.join('\n')));
+  const parsed = JSON.parse(jsonLogs.join('\n'));
+  assert.equal(parsed.next, 'ai-harness task context statusx');
 });
 
 test('task create, claude, codex-review, hardening outputs include next steps', async () => {
