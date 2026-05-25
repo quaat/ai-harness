@@ -1,0 +1,31 @@
+{
+  "name": "ai-harness",
+  "version": "0.1.0",
+  "description": "Scaffold and validate AI collaboration harnesses for Codex + Claude",
+  "type": "module",
+  "bin": {
+    "ai-harness": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx src/cli.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "commander": "14.0.2",
+    "diff": "8.0.2",
+    "execa": "9.6.0",
+    "fs-extra": "11.3.2",
+    "picocolors": "1.1.1",
+    "prompts": "2.4.2",
+    "yaml": "2.8.1",
+    "zod": "4.1.12"
+  },
+  "devDependencies": {
+    "@types/fs-extra": "11.0.4",
+    "@types/node": "24.10.1",
+    "tsx": "4.20.6",
+    "typescript": "5.9.3"
+  }
+}
