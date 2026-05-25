@@ -70,12 +70,12 @@ export async function scaffoldHarness(root: string, detected: DetectedProject, o
   };
 
   await writeManaged(root, "ai-harness.config.yaml", YAML.stringify(config), options.force ? "overwrite" : "create", Boolean(options.dryRun), changes);
-  await writeManaged(root, "AGENTS.md", managedDoc("AGENTS", "Shared operating manual for Codex and Claude.\n\n## Workflow\n1. Plan in .ai/plans\n2. Implement in .ai/handoffs\n3. Review in .ai/reviews"), docPolicy, Boolean(options.dryRun), changes);
-  await writeManaged(root, "CLAUDE.md", managedDoc("Claude Code instructions", "@AGENTS.md\n\nUse project skills in .claude/skills and run validations before handoff."), docPolicy, Boolean(options.dryRun), changes);
+  await writeManaged(root, "AGENTS.md", managedDoc("AGENTS", "Shared operating manual for Codex and Claude.\n\n## Workflow\n1. Plan in .ai/plans\n2. Implement in .ai/handoffs\n3. Review in .ai/reviews\n\n## Context minimization\n- Run `ai-harness search \"<query>\"` before broad reads.\n- Avoid loading large files unless search results indicate relevance.\n- Prefer targeted paths and line ranges over full-file reads.\n- Record useful findings in `.ai/retrieval-notes/<task-id>.md`.\n- Avoid pasting large docs into prompts.\n- Summarize only the minimal context needed for the next step."), docPolicy, Boolean(options.dryRun), changes);
+  await writeManaged(root, "CLAUDE.md", managedDoc("Claude Code instructions", "@AGENTS.md\n\nRetrieval-first workflow:\n- Use `@AGENTS.md` as the operating manual.\n- Use `.claude/skills/retrieve-context/SKILL.md` before broad inspection.\n- Prefer `ai-harness search` over wide `Read`, `Glob`, or `Grep` operations.\n- If unsure where to look, stop and search first.\n- Keep implementation prompts and handoffs concise."), docPolicy, Boolean(options.dryRun), changes);
 
   const skills: Record<string, string> = {
     "implement-plan": "---\nname: implement-plan\ndescription: Execute approved plan safely\n---\nRead plan, implement smallest safe change, update handoff notes.",
-    "retrieve-context": "---\nname: retrieve-context\ndescription: Fetch targeted context from local RAG\n---\nRun ai-harness search first, then read only top matching files.",
+    "retrieve-context": "---\nname: retrieve-context\ndescription: Fetch targeted context from local RAG\n---\n## When to use\nUse this before broad inspection, especially when the target files are unclear.\n\n## Query quality\n- Start with feature/error terms and key symbols (function/class/file names).\n- Add stack-specific words to disambiguate (e.g., route, hook, test, migration).\n- Run 1-3 focused queries instead of one broad query.\n\n## Retrieval loop\n1. Run `ai-harness search \"<query>\"`.\n2. Inspect only the top 3-5 results first.\n3. Capture findings in `.ai/retrieval-notes/<task-id>.md`.\n4. Read exact files only after search identifies relevant paths/line ranges.\n\n## Output format\n- Query used\n- Relevant chunks\n- Files/line ranges to inspect\n- What not to read\n- Open questions",
     "verify-change": "---\nname: verify-change\ndescription: Validate quality gates before review\n---\nRun lint/typecheck/test/build and summarize failures with fixes.",
     "prepare-codex-review": "---\nname: prepare-codex-review\ndescription: Package implementation for Codex review\n---\nSummarize changes, tests, risks, and open questions in .ai/reviews."
   };
@@ -83,7 +83,10 @@ export async function scaffoldHarness(root: string, detected: DetectedProject, o
 
   const hookSettings = {
     hooks: {
-      PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-dangerous-bash.sh" }] }],
+      PreToolUse: [
+        { matcher: "Bash", hooks: [{ type: "command", command: "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-dangerous-bash.sh" }] },
+        { matcher: "Read|Glob|Grep", hooks: [{ type: "command", command: "${CLAUDE_PROJECT_DIR}/.claude/hooks/nudge-retrieve-context.sh" }] }
+      ],
       PostToolUse: [{ matcher: "Edit|MultiEdit|Write", hooks: [{ type: "command", command: "${CLAUDE_PROJECT_DIR}/.claude/hooks/after-edit-check.sh" }] }]
     }
   };
@@ -98,6 +101,35 @@ if [[ "$cmd" =~ $blocked_regex ]]; then
   exit 0
 fi
 jq -n '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}'
+`, safePolicy, Boolean(options.dryRun), changes);
+  await writeManaged(root, ".claude/hooks/nudge-retrieve-context.sh", `#!/usr/bin/env bash
+set -euo pipefail
+payload="$(cat)"
+name="$(printf '%s' "$payload" | jq -r '.tool_name // ""')"
+input="$(printf '%s' "$payload" | jq -c '.tool_input // {}')"
+nudge=""
+if [[ "$name" == "Read" ]]; then
+  file_path="$(printf '%s' "$input" | jq -r '.file_path // ""')"
+  if [[ "$file_path" == "." || "$file_path" == "./" || "$file_path" == "/" ]]; then
+    nudge="Broad read detected (\${name} \${file_path}). Run ai-harness search \"<query>\" first, then read only targeted paths/line ranges."
+  fi
+elif [[ "$name" == "Glob" ]]; then
+  pattern="$(printf '%s' "$input" | jq -r '.pattern // ""')"
+  if [[ "$pattern" == "**/*" || "$pattern" == "*" ]]; then
+    nudge="Wide glob detected (\${pattern}). Run ai-harness search \"<query>\" first and narrow files before reading."
+  fi
+elif [[ "$name" == "Grep" ]]; then
+  path_hint="$(printf '%s' "$input" | jq -r '.path // .dir // ""')"
+  include_hint="$(printf '%s' "$input" | jq -r '.include // .glob // ""')"
+  if [[ "$path_hint" == "." || "$path_hint" == "./" || "$path_hint" == "" ]] && [[ "$include_hint" == "" ]]; then
+    nudge="Broad grep from project root detected. Run ai-harness search \"<query>\" first, then grep only narrowed targets."
+  fi
+fi
+if [[ -z "$nudge" ]]; then
+  jq -n '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}'
+else
+  jq -n --arg msg "$nudge" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","additionalContext":$msg}}'
+fi
 `, safePolicy, Boolean(options.dryRun), changes);
   await writeManaged(root, ".claude/hooks/after-edit-check.sh", `#!/usr/bin/env bash
 set -euo pipefail
@@ -115,6 +147,7 @@ printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext"
 
   if (!options.dryRun) {
     await fs.chmod(path.join(root, ".claude/hooks/block-dangerous-bash.sh"), 0o755).catch(() => undefined);
+    await fs.chmod(path.join(root, ".claude/hooks/nudge-retrieve-context.sh"), 0o755).catch(() => undefined);
     await fs.chmod(path.join(root, ".claude/hooks/after-edit-check.sh"), 0o755).catch(() => undefined);
   }
   return changes;
