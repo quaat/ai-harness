@@ -96,9 +96,13 @@ async function prTask(taskId: string, opts: { draft?: boolean; skipReview?: bool
   const title = `${taskId}: implement task workflow`;
   const result = await createPullRequest({ cwd, baseBranch: t.baseBranch, headBranch: t.branch, title, bodyFile: t.artifacts.pr, draft: Boolean(opts.draft) });
   if (result.url) {
-    t.pullRequest.url = result.url;
-    t.status = "pr-opened";
-    await writeTask(cwd, t);
+    console.log(`Opened PR: ${result.url}`);
+    return;
   }
+  if ((result as { warning?: string }).warning) {
+    console.log(`Could not create PR with gh. ${(result as { warning?: string }).warning}\nRun:\n${result.command}`);
+    return;
+  }
+  console.log(`gh not available. Run:\n${result.command}`);
   if (!result.url) console.log(`gh not available. Run:\n${result.command}`);
 }

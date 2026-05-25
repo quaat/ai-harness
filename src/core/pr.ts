@@ -17,7 +17,11 @@ export async function createPullRequest(args: { cwd: string; baseBranch: string;
   const command = renderGhCreateCommand(args);
   if (!(await hasGhCli(args.cwd))) return { command };
   const ghArgs = ["pr", "create", "--base", args.baseBranch, "--head", args.headBranch, "--title", args.title, "--body-file", args.bodyFile, ...(args.draft ? ["--draft"] : [])];
-  const { stdout } = await execa("gh", ghArgs, { cwd: args.cwd });
-  const urlMatch = stdout.match(/https:\/\/\S+/);
-  return { command, url: urlMatch?.[0] };
+  try {
+    const { stdout } = await execa("gh", ghArgs, { cwd: args.cwd });
+    const urlMatch = stdout.match(/https:\/\/\S+/);
+    return { command, url: urlMatch?.[0] };
+  } catch (error: any) {
+    return { command, warning: error?.stderr || error?.message || "gh pr create failed" };
+  }
 }

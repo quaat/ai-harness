@@ -6,7 +6,7 @@ import path from 'node:path';
 import { execa } from 'execa';
 import { taskCommand } from '../dist/commands/task.js';
 import { readTask } from '../dist/core/task-store.js';
-import { renderGhCreateCommand } from '../dist/core/pr.js';
+import { createPullRequest, renderGhCreateCommand } from '../dist/core/pr.js';
 
 async function gitRepo(opts = { withPackage: true }) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'aih-task-'));
@@ -125,4 +125,57 @@ test('non-node repos mark checks skipped', async () => {
   assert.equal(t.checks.typecheck, 'skipped');
   const testsMd = await fs.readFile(path.join(dir, '.ai/tasks/py/tests.md'), 'utf8');
   assert.match(testsMd, /No project checks were configured\/applicable/);
+});
+
+
+test('createPullRequest falls back when gh exists but unauthenticated/fails', async () => {
+  const dir = await gitRepo();
+  const bin = await fs.mkdtemp(path.join(os.tmpdir(), 'gh-bin-'));
+  await fs.ensureDir(bin);
+  const gh = path.join(bin, 'gh');
+  await fs.writeFile(gh, '#!/usr/bin/env bash\nif [[ "$1" == "--version" ]]; then echo "gh 2.0"; exit 0; fi\necho "not logged in" 1>&2\nexit 1\n');
+  await fs.chmod(gh, 0o755);
+  const oldPath = process.env.PATH ?? '';
+  process.env.PATH = `${bin}:${oldPath}`;
+  try {
+    const result = await createPullRequest({ cwd: dir, baseBranch: 'main', headBranch: 'ai/x', title: 'x', bodyFile: '.ai/tasks/x/pr.md' });
+    assert.ok(result.command);
+    assert.match(String(result.warning || ''), /not logged in|failed/i);
+  } finally {
+    process.env.PATH = oldPath;
+  }
+});
+
+test('task pr successful URL path does not mutate task.yaml or dirty tree', async () => {
+  const dir = await gitRepo();
+  await runTask(['create','prok','--prompt','x'], dir);
+  await fs.writeFile(path.join(dir, '.ai/tasks/prok/codex-review.md'), 'review');
+  await fs.writeFile(path.join(dir, 'f.txt'), 'x');
+  await runTask(['commit','prok','--no-checks'], dir);
+  await assert.rejects(() => runTask(['pr','prok','--skip-review'], dir), /Generated PR artifacts changed the working tree/);
+  await execa('git', ['add', '-A'], { cwd: dir });
+  await execa('git', ['commit', '-m', 'chore: commit pr artifacts'], { cwd: dir });
+
+  const bin = await fs.mkdtemp(path.join(os.tmpdir(), 'gh-bin-'));
+  await fs.ensureDir(bin);
+  const gh = path.join(bin, 'gh');
+  await fs.writeFile(gh, '#!/usr/bin/env bash\nif [[ "$1" == "--version" ]]; then echo "gh 2.0"; exit 0; fi\necho "https://github.com/acme/repo/pull/123"\nexit 0\n');
+  await fs.chmod(gh, 0o755);
+  const oldPath = process.env.PATH ?? '';
+  process.env.PATH = `${bin}:${oldPath}`;
+  const beforeTaskYaml = await fs.readFile(path.join(dir, '.ai/tasks/prok/task.yaml'), 'utf8');
+  const logs = [];
+  const old = console.log;
+  console.log = (m) => logs.push(String(m));
+  try {
+    await runTask(['pr','prok','--skip-review'], dir);
+  } finally {
+    console.log = old;
+    process.env.PATH = oldPath;
+  }
+  const afterTaskYaml = await fs.readFile(path.join(dir, '.ai/tasks/prok/task.yaml'), 'utf8');
+  assert.equal(afterTaskYaml, beforeTaskYaml);
+  const st = (await execa('git', ['status', '--porcelain'], { cwd: dir })).stdout.trim();
+  assert.equal(st, '');
+  assert.match(logs.join('\n'), /Opened PR:/);
 });
