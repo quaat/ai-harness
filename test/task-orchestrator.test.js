@@ -88,7 +88,7 @@ test('task pr refuses because generated artifacts dirty worktree by default', as
   await fs.writeFile(path.join(dir, '.ai/tasks/prx/codex-review.md'), 'review');
   await fs.writeFile(path.join(dir, 'f.txt'), 'x');
   await runTask(['commit','prx','--no-checks'], dir);
-  await assert.rejects(() => runTask(['pr','prx','--skip-review'], dir), /Generated PR artifacts changed the working tree/);
+  await assert.rejects(() => runTask(['pr','prx','--skip-review'], dir), /PR body generated:/);
 });
 
 test('task pr fallback does not dirty worktree', async () => {
@@ -97,7 +97,7 @@ test('task pr fallback does not dirty worktree', async () => {
   await fs.writeFile(path.join(dir, '.ai/tasks/prclean/codex-review.md'), 'review');
   await fs.writeFile(path.join(dir, 'f.txt'), 'x');
   await runTask(['commit','prclean','--no-checks'], dir);
-  await assert.rejects(() => runTask(['pr','prclean','--skip-review'], dir), /Generated PR artifacts changed the working tree/);
+  await assert.rejects(() => runTask(['pr','prclean','--skip-review'], dir), /PR body generated:/);
   await execa('git', ['add', '-A'], { cwd: dir });
   await execa('git', ['commit', '-m', 'chore: commit pr artifacts'], { cwd: dir });
   const logs = [];
@@ -107,7 +107,7 @@ test('task pr fallback does not dirty worktree', async () => {
   finally { console.log = old; }
   const st = (await execa('git', ['status', '--porcelain'], { cwd: dir })).stdout.trim();
   assert.equal(st, '');
-  assert.match(logs.join('\n'), /(gh not available\. Run:|Could not create PR with gh\.)/);
+  assert.match(logs.join('\n'), /(Could not create PR with GitHub CLI\.|gh auth login|Or create the PR manually with:)/);
 });
 
 test('gh fallback command is shell-quoted safely', async () => {
@@ -128,6 +128,51 @@ test('non-node repos mark checks skipped', async () => {
 });
 
 
+
+
+test('task status human output is formatted and json output remains valid', async () => {
+  const dir = await gitRepo();
+  await runTask(['create','statusx','--prompt','x','--no-branch'], dir);
+  const logs = [];
+  const old = console.log;
+  console.log = (m) => logs.push(String(m));
+  try { await runTask(['status','statusx'], dir); }
+  finally { console.log = old; }
+  const out = logs.join('\n');
+  assert.match(out, /Task: statusx/);
+  assert.match(out, /Status:/);
+  assert.match(out, /Branch:/);
+  assert.match(out, /Artifacts:/);
+  assert.match(out, /Checks:/);
+  assert.match(out, /Next:/);
+
+  const jsonLogs = [];
+  console.log = (m) => jsonLogs.push(String(m));
+  try { await runTask(['status','statusx','--json'], dir); }
+  finally { console.log = old; }
+  assert.doesNotThrow(() => JSON.parse(jsonLogs.join('\n')));
+});
+
+test('task create, claude, codex-review, hardening outputs include next steps', async () => {
+  const dir = await gitRepo();
+  const logs = [];
+  const old = console.log;
+  console.log = (m) => logs.push(String(m));
+  try {
+    await runTask(['create','ux','--prompt','x','--no-branch'], dir);
+    await runTask(['claude','ux'], dir);
+    await runTask(['codex-review','ux'], dir);
+    await fs.writeFile(path.join(dir, '.ai/tasks/ux/codex-review.md'), '## Required fixes\n- x');
+    await runTask(['hardening','ux'], dir);
+  } finally { console.log = old; }
+  const out = logs.join('\n');
+  assert.match(out, /Created task `ux`/);
+  assert.match(out, /Branch:/);
+  assert.match(out, /Next:/);
+  assert.match(out, /Claude implementation prompt ready/);
+  assert.match(out, /Codex review prompt ready/);
+  assert.match(out, /Claude hardening instructions ready/);
+});
 test('createPullRequest falls back when gh exists but unauthenticated/fails', async () => {
   const dir = await gitRepo();
   const bin = await fs.mkdtemp(path.join(os.tmpdir(), 'gh-bin-'));
@@ -152,7 +197,7 @@ test('task pr successful URL path does not mutate task.yaml or dirty tree', asyn
   await fs.writeFile(path.join(dir, '.ai/tasks/prok/codex-review.md'), 'review');
   await fs.writeFile(path.join(dir, 'f.txt'), 'x');
   await runTask(['commit','prok','--no-checks'], dir);
-  await assert.rejects(() => runTask(['pr','prok','--skip-review'], dir), /Generated PR artifacts changed the working tree/);
+  await assert.rejects(() => runTask(['pr','prok','--skip-review'], dir), /PR body generated:/);
   await execa('git', ['add', '-A'], { cwd: dir });
   await execa('git', ['commit', '-m', 'chore: commit pr artifacts'], { cwd: dir });
 

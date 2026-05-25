@@ -1,102 +1,292 @@
 # ai-harness
 
-`ai-harness` scaffolds a shared Codex + Claude workflow for existing repositories and fresh projects.
+`ai-harness` scaffolds and validates a retrieval-first Claude + Codex workflow. It helps teams run a semi-manual, Git-native loop where Claude implements/tests and Codex plans/reviews/hardens through durable task artifacts under `.ai/`.
 
-## Install
+## Project overview
+
+`ai-harness` is for engineering teams that want dependable AI-assisted delivery without hidden orchestration. It solves common problems:
+- prompts and review notes scattered in chat history,
+- unclear ownership between implementation and review,
+- weak reproducibility across handoffs,
+- missed quality gates before PRs.
+
+Claude Code and Codex collaborate through files and Git state:
+- Claude: implementation and testing from bounded context.
+- Codex: review, risk finding, hardening guidance.
+- `ai-harness`: creates prompts, tracks state, enforces checks, and keeps artifacts versioned.
+
+Why files + Git as durable state:
+- inspectable by humans,
+- diffable in PRs,
+- replayable for audits,
+- stable across tool sessions.
+
+What it does **not** do: invoke Claude/Codex directly, auto-merge, auto-approve reviews, or run background agents.
+
+```text
+task prompt
+  -> bounded RAG context
+  -> Claude implementation prompt
+  -> local checks + commit
+  -> Codex review prompt
+  -> Claude hardening prompt
+  -> final checks + PR
+```
+
+## Installation and development setup
 
 ```bash
 npm install
 npm run build
 npm link
+ai-harness --help
 ```
 
-## Commands
-
-- `ai-harness init`
-- `ai-harness retrofit [--dry-run] [--merge] [--force]`
-- `ai-harness doctor`
-- `ai-harness index`
-- `ai-harness search "query" [--json] [--top-k 3]`
-
-## Retrofit behavior
-
-- `--dry-run`: previews create/update/skip changes with real before/after diffs and makes no filesystem changes.
-- `--merge`: merges managed sections for `AGENTS.md` and `CLAUDE.md`.
-- `--force`: overwrites managed files that are otherwise protected.
-
-## Generated tree (high level)
-
-- `.ai/` plans, reviews, handoffs, rag index artifacts
-- `.claude/` hook settings, hook scripts, and skills
-- `docs/` architecture, ADRs, runbooks, knowledge stubs
-- `scripts/rag/` local RAG support docs
-
-## Claude hooks
-
-Generated `.claude/settings.json` uses Claude Code `PreToolUse` and `PostToolUse` event schema.
-
-- `PreToolUse` + `Bash` matcher calls `block-dangerous-bash.sh`.
-- `PostToolUse` + `Edit|MultiEdit|Write` matcher calls `after-edit-check.sh`.
-
-`block-dangerous-bash.sh` parses hook JSON from stdin and denies known destructive commands such as `rm -rf`, `git reset --hard`, `git clean -fd`, and `docker system prune`.
-
-## RAG configuration
-
-Configure in `ai-harness.config.yaml`:
-
-- `rag.include`: files/dirs to index
-- `rag.exclude`: extra paths to exclude (in addition to built-in safety exclusions)
-
-Markdown is chunked by headings, while code/data files are chunked by line windows.
-
-## Minimizing Claude tokens
-
-`ai-harness search` exists to keep Claude (and other agents) retrieval-first: find the smallest relevant context before opening files.
-
-Recommended flow:
-
-1. `ai-harness index`
-2. `ai-harness search "<feature or error>"`
-3. inspect only the returned file paths and line ranges
-4. record findings in `.ai/retrieval-notes/`
-
-Generated projects include a Claude retrieval nudge hook (`Read|Glob|Grep`) that allows tool use, but adds context reminding Claude to search first when a broad read is detected.
-
-Known limitations:
-
-- local keyword search is lexical (not semantic), so query phrasing matters.
-- ranking is heuristic and may miss intent if symbols are renamed or uncommon.
-- large repos may still require multiple focused queries to converge quickly.
-
-## Task orchestration
-
-`ai-harness task` provides a deterministic Git-native workflow using `.ai/tasks/<task-id>/task.yaml` as source of truth.
-
-Flow:
+Development loop:
 
 ```bash
-ai-harness task create user-auth --prompt "Add email/password authentication with protected routes"
+npm run typecheck
+npm test
+npm run build
+```
+
+Required tools:
+- Node.js
+- npm
+- Git
+- `jq` (for generated Claude hook scripts)
+- optional `gh` (for PR creation)
+
+If `gh` is unavailable or unauthenticated, `ai-harness task pr` prints a safe fallback `gh pr create ...` command.
+
+## Fresh project walkthrough
+
+```bash
+mkdir my-app
+cd my-app
+git init
+git config user.email "you@example.com"
+git config user.name "Your Name"
+
+ai-harness init
+ai-harness doctor
+ai-harness index
+```
+
+Create and start a task:
+
+```bash
+ai-harness task create user-auth \
+  --prompt "Add email/password authentication with protected routes"
+
 ai-harness task context user-auth
 ai-harness task claude user-auth
-# run Claude manually
+```
+
+`init` creates the AI harness (artifacts, prompts, hooks, config), not a framework app scaffold like Next.js/FastAPI/Rails.
+
+## Existing repo retrofit walkthrough
+
+```bash
+cd existing-project
+
+ai-harness retrofit --dry-run
+ai-harness retrofit --merge
+ai-harness doctor
+ai-harness index
+```
+
+- `--dry-run`: no filesystem changes.
+- `--merge`: appends/replaces managed blocks in `AGENTS.md` and `CLAUDE.md`.
+- `--force`: destructive overwrite of managed files—use carefully.
+- Existing application code is not rewritten.
+- Existing instructions are preserved where possible.
+
+Recommended first task:
+
+```bash
+ai-harness task create repo-overview \
+  --prompt "Review the current architecture and identify the safest first improvement"
+```
+
+## Full Claude + Codex workflow
+
+```bash
+ai-harness task create user-auth \
+  --prompt "Add email/password authentication with protected routes"
+
+ai-harness task context user-auth
+ai-harness task claude user-auth
+```
+
+Paste `.ai/tasks/user-auth/claude-implement.md` into Claude Code. Claude should implement, test, and write:
+- `.ai/tasks/user-auth/implementation.md`
+- `.ai/tasks/user-auth/tests.md`
+
+Then:
+
+```bash
 ai-harness task commit user-auth
 ai-harness task codex-review user-auth
-# run Codex manually
+```
+
+Paste `.ai/tasks/user-auth/codex-review-prompt.md` into Codex. Codex should write `.ai/tasks/user-auth/codex-review.md`.
+
+Then:
+
+```bash
 ai-harness task hardening user-auth
-# run Claude manually
+```
+
+Paste `.ai/tasks/user-auth/claude-fix-instructions.md` into Claude. Claude applies required fixes and writes `.ai/tasks/user-auth/hardening.md`.
+
+Then:
+
+```bash
 ai-harness task commit user-auth --phase hardening
 ai-harness task pr user-auth --draft
 ```
 
-Artifacts under `.ai/tasks/<task-id>` capture prompt, bounded context, implementation notes, test evidence, Codex review, hardening instructions, and PR body. Claude is responsible for implementation/hardening; Codex is responsible for review-only feedback. Commit/PR commands enforce branch, clean-tree, checks, and review gates. If `gh` is unavailable, `task pr` prints a safe fallback command.
+Expected behavior:
+- implementation and metadata are committed separately,
+- PR artifacts may need to be committed before PR creation,
+- `task pr` leaves a clean tree after successful PR creation.
 
-`task commit` creates the implementation/hardening commit first, then writes the commit SHA to `task.yaml` and creates a separate metadata commit. The manifest commit SHA points to the implementation/hardening change commit (not the metadata commit).
+## Task artifact layout
 
-`task pr` may require `pr.md` artifacts to be committed before PR creation. On successful PR creation, the URL is printed but `task.yaml` is not auto-updated, so the working tree remains clean by default.
+```text
+.ai/tasks/user-auth/
+  task.yaml
+  prompt.md
+  context.md
+  claude-implement.md
+  implementation.md
+  tests.md
+  codex-review-prompt.md
+  codex-review.md
+  claude-fix-instructions.md
+  hardening.md
+  pr.md
+```
 
-Task safety notes:
+- `task.yaml`: source of truth for task state, checks, commits, branch, and artifact paths.
+- `prompt.md`: original task prompt.
+- `context.md`: bounded RAG context from indexed search.
+- `claude-implement.md`: copy-ready Claude implementation prompt.
+- `implementation.md`: Claude implementation notes.
+- `tests.md`: check/test outputs and failures.
+- `codex-review-prompt.md`: copy-ready Codex review prompt.
+- `codex-review.md`: Codex review findings and requirements.
+- `claude-fix-instructions.md`: deterministic hardening instructions extracted from review.
+- `hardening.md`: Claude hardening summary.
+- `pr.md`: generated PR body.
 
-- `ai-harness task create --no-branch` keeps you on the current branch and records that branch in `task.yaml`.
-- `ai-harness task commit` inspects full worktree changes (including untracked files) and refuses to commit likely secret files like `.env`, `*.pem`, `*.key`, `id_rsa`, `credentials.json`, or `secrets.yml`.
-- If no project checks are configured/applicable (for example non-Node repos), checks are marked `skipped` and `tests.md` explains why.
-- `ai-harness task pr` requires a clean tree and will refuse to open a PR if generating PR artifacts changes files; commit generated artifacts first, then rerun.
+## Minimizing Claude tokens
+
+Broad repository reads waste tokens and often dilute signal. Use lexical retrieval to create a bounded packet first.
+
+Why this works:
+- `ai-harness search` narrows to likely-relevant chunks.
+- `task context` creates a focused context packet.
+- generated prompts tell Claude exactly what to read.
+- retrieval notes can be reused by future tasks.
+
+Recommended flow:
+
+```bash
+ai-harness index
+ai-harness search "auth login route"
+ai-harness task context user-auth --query "auth login route"
+```
+
+Tips:
+- search exact error messages,
+- search symbols/functions/classes,
+- include domain terms,
+- inspect top 3–5 results first,
+- do not paste entire directories into Claude.
+
+Limitations: lexical search can miss semantic matches and refactors; always perform human code review.
+
+## Troubleshooting
+
+### `jq` is missing
+
+Generated Claude hooks use `jq` for JSON parsing/emission. `ai-harness doctor` warns if missing.
+
+```bash
+brew install jq
+sudo apt-get install jq
+```
+
+### `gh` is missing or not authenticated
+
+`gh` is optional. If missing/unauthenticated, `task pr` prints fallback PR command.
+
+```bash
+gh auth login
+```
+
+### Missing RAG index
+
+Error:
+
+```text
+Missing .ai/rag/index.jsonl. Run `ai-harness index` first.
+```
+
+Fix:
+
+```bash
+ai-harness index
+```
+
+### Dirty working tree
+
+Common causes: uncommitted code, generated `pr.md`, updated task metadata, or post-check Claude edits.
+
+```bash
+git status
+git diff
+git add -A
+git commit -m "..."
+```
+
+### Failed checks
+
+`task commit` runs checks first. Failures are written to `.ai/tasks/<task-id>/tests.md`. Fix issues, rerun local tests, then rerun `task commit`.
+
+### Secret file refused
+
+`task commit` blocks likely secrets (for example `.env`, `*.pem`, `*.key`, `id_rsa`, `credentials.json`, `secrets.yml`). Remove/ignore/relocate them before committing.
+
+## Security model and limitations
+
+- No LLM calls are made by the tool.
+- No direct Claude/Codex invocation.
+- No background agents.
+- No automatic merge.
+- No automatic approval of Codex reviews.
+- Secret-like files are blocked from task commits.
+- RAG indexing skips built-in secret patterns.
+- Generated Claude hooks block obvious dangerous shell commands.
+- Hooks are guardrails, not a full sandbox.
+- Users must review generated code before merge.
+- Lexical RAG is not a substitute for full code review.
+- `--force` can overwrite managed files and should be used carefully.
+
+## Command reference
+
+- `ai-harness init`: create harness files in current repo.
+- `ai-harness retrofit [--dry-run] [--merge] [--force]`: retrofit existing repo.
+- `ai-harness doctor [--json]`: validate setup and dependencies.
+- `ai-harness index`: build local lexical RAG index.
+- `ai-harness search "<query>" [--json] [--top-k N]`: retrieve relevant chunks.
+- `ai-harness task create <id> --prompt "..." [--no-branch]`: create task workspace/branch.
+- `ai-harness task status <id> [--json]`: show status summary and next step.
+- `ai-harness task context <id> [--query "..."]`: write bounded context packet.
+- `ai-harness task claude <id>`: generate Claude implementation prompt.
+- `ai-harness task codex-review <id>`: generate Codex review prompt.
+- `ai-harness task hardening <id>`: generate Claude hardening instructions.
+- `ai-harness task commit <id> [--phase implementation|hardening] [--no-checks]`: run checks and commit.
+- `ai-harness task pr <id> [--draft] [--skip-review]`: generate PR body and open PR with `gh` when available.
