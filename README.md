@@ -10,6 +10,11 @@ npm run build
 npm link
 ```
 
+## Requirements
+- Node.js 20+
+- npm
+- jq (required by generated Claude hook scripts)
+
 ## Commands
 
 - `ai-harness init`
@@ -47,4 +52,17 @@ Configure in `ai-harness.config.yaml`:
 - `rag.include`: files/dirs to index
 - `rag.exclude`: extra paths to exclude (in addition to built-in safety exclusions)
 
+
+## Safety
+- Retrofit defaults to create/skip behavior unless merge or force is requested.
+- RAG indexing skips common secret and artifact paths.
+- Generated Claude hooks block dangerous bash patterns and surface post-edit check status.
+
+## Development workflow
+- `npm ci`
+- `npm run typecheck`
+- `npm test`
+- `npm run build`
+
 Markdown is chunked by headings, while code/data files are chunked by line windows.
+

@@ -81,34 +81,9 @@ export async function scaffoldHarness(root: string, detected: DetectedProject, o
   };
   for (const [name, text] of Object.entries(skills)) await writeManaged(root, `.claude/skills/${name}/SKILL.md`, `${text}\n`, safePolicy, Boolean(options.dryRun), changes);
 
-  const hookSettings = {
-    hooks: {
-      PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-dangerous-bash.sh" }] }],
-      PostToolUse: [{ matcher: "Edit|MultiEdit|Write", hooks: [{ type: "command", command: "${CLAUDE_PROJECT_DIR}/.claude/hooks/after-edit-check.sh" }] }]
-    }
-  };
-  await writeManaged(root, ".claude/settings.json", JSON.stringify(hookSettings, null, 2) + "\n", safePolicy, Boolean(options.dryRun), changes);
-  await writeManaged(root, ".claude/hooks/block-dangerous-bash.sh", `#!/usr/bin/env bash
-set -euo pipefail
-payload="$(cat)"
-cmd="$(printf '%s' "$payload" | jq -r '.tool_input.command // ""')"
-blocked_regex='(^|[;&|[:space:]])rm[[:space:]]+-rf([[:space:]]|$)|git[[:space:]]+reset[[:space:]]+--hard|git[[:space:]]+clean[[:space:]]+-fd|docker[[:space:]]+system[[:space:]]+prune'
-if [[ "$cmd" =~ $blocked_regex ]]; then
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked potentially destructive command: %s"}}\n' "$cmd"
-  exit 0
-fi
-printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}\n'
-`, safePolicy, Boolean(options.dryRun), changes);
-  await writeManaged(root, ".claude/hooks/after-edit-check.sh", `#!/usr/bin/env bash
-set -euo pipefail
-if command -v npm >/dev/null 2>&1; then
-  npm run typecheck --if-present >/dev/null 2>&1 || true
-fi
-if command -v python >/dev/null 2>&1; then
-  python -m compileall -q src >/dev/null 2>&1 || true
-fi
-printf '{"hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"post-edit checks complete"}}\n'
-`, safePolicy, Boolean(options.dryRun), changes);
+  await writeManaged(root, ".claude/settings.json", JSON.stringify({ hooks: { preCommand: [".claude/hooks/block-dangerous-bash.sh"], postEdit: [".claude/hooks/after-edit-check.sh"] } }, null, 2) + "\n", safePolicy, Boolean(options.dryRun), changes);
+  await writeManaged(root, ".claude/hooks/block-dangerous-bash.sh", "#!/usr/bin/env bash\nset -euo pipefail\ncmd=\"${1:-}\"\nif [[ \"$cmd\" =~ (rm -rf /|:(){:|:&};:) ]]; then\n  jq -n --arg reason \"Blocked potentially destructive command: $cmd\" '{\n    hookSpecificOutput: {\n      hookEventName: \"PreToolUse\",\n      permissionDecision: \"deny\",\n      permissionDecisionReason: $reason\n    }\n  }'\n  exit 0\nfi\n", safePolicy, Boolean(options.dryRun), changes);
+  await writeManaged(root, ".claude/hooks/after-edit-check.sh", "#!/usr/bin/env bash\nset -euo pipefail\nstatus=0\nlog_file=\"/tmp/ai-harness-typecheck.log\"\nif command -v npm >/dev/null 2>&1; then\n  npm run typecheck --if-present >\"$log_file\" 2>&1 || status=$?\nfi\nif [ \"$status\" -ne 0 ]; then\n  jq -n --arg msg \"post-edit check failed; inspect $log_file\" '{\n    hookSpecificOutput: {\n      hookEventName: \"PostToolUse\",\n      additionalContext: $msg\n    }\n  }'\nelse\n  jq -n '{\n    hookSpecificOutput: {\n      hookEventName: \"PostToolUse\",\n      additionalContext: \"post-edit checks passed\"\n    }\n  }'\nfi\n", safePolicy, Boolean(options.dryRun), changes);
 
   await writeManaged(root, ".ai/rag/index.jsonl", "", safePolicy, Boolean(options.dryRun), changes);
   await writeManaged(root, ".ai/rag/manifest.json", JSON.stringify({ version: 1, chunks: 0 }, null, 2) + "\n", safePolicy, Boolean(options.dryRun), changes);

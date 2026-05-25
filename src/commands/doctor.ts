@@ -1,5 +1,6 @@
 import fs from "fs-extra";
 import YAML from "yaml";
+import { spawnSync } from "node:child_process";
 
 const required = ["AGENTS.md", "CLAUDE.md", "ai-harness.config.yaml", ".ai/plans", ".ai/handoffs", ".ai/reviews", ".ai/decisions", ".ai/retrieval-notes", ".ai/prompts", ".ai/rag/index.jsonl", ".ai/rag/manifest.json", ".claude/settings.json"];
 const skills = ["implement-plan", "retrieve-context", "verify-change", "prepare-codex-review"];
@@ -12,10 +13,16 @@ export async function doctorCommand() {
   for (const h of [".claude/hooks/block-dangerous-bash.sh", ".claude/hooks/after-edit-check.sh"]) if (!(await fs.pathExists(h))) warnings.push(`missing optional hook: ${h}`);
   const claude = (await fs.pathExists("CLAUDE.md")) ? await fs.readFile("CLAUDE.md", "utf8") : "";
   if (!claude.includes("@AGENTS.md")) errors.push("CLAUDE.md missing @AGENTS.md import");
+  const jqCheck = spawnSync("jq", ["--version"], { stdio: "ignore" });
+  if (jqCheck.status !== 0) warnings.push("jq is not installed; generated Claude hooks require jq");
   if (await fs.pathExists("ai-harness.config.yaml")) {
-    const cfg = YAML.parse(await fs.readFile("ai-harness.config.yaml", "utf8"));
-    const includes: string[] = cfg?.rag?.include ?? [];
-    if (includes.some((x) => x === "." || x === "**")) warnings.push("unsafe rag include pattern detected");
+    try {
+      const cfg = YAML.parse(await fs.readFile("ai-harness.config.yaml", "utf8"));
+      const includes: string[] = cfg?.rag?.include ?? [];
+      if (includes.some((x) => x === "." || x === "**")) warnings.push("unsafe rag include pattern detected");
+    } catch {
+      errors.push("invalid ai-harness.config.yaml (failed to parse YAML)");
+    }
   }
   const result = { ok: errors.length === 0, errors, warnings };
   console.log(JSON.stringify(result, null, 2));
