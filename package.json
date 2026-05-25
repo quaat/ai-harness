@@ -10,7 +10,8 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.ts",
     "typecheck": "tsc --noEmit",
-    "test": "node --test"
+    "test": "node --test",
+    "pretest": "npm run build"
   },
   "dependencies": {
     "commander": "14.0.2",

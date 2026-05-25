@@ -18,22 +18,25 @@ export async function detectProject(root: string): Promise<DetectedProject> {
 
   let stack: DetectedProject["stack"] = "unknown";
   if (hasPackageJson) stack = "node";
-  else if (hasPyproject) stack = "python";
-  else if (hasGoMod) stack = "go";
-  else if (hasCargo) stack = "rust";
+  else if (hasPyproject || await fs.pathExists(path.join(root, "requirements.txt"))) stack = "python";
+  else if (hasGoMod || await fs.pathExists(path.join(root, "go.work"))) stack = "go";
+  else if (hasCargo || await fs.pathExists(path.join(root, "Cargo.lock"))) stack = "rust";
 
   const packageManager = detectPackageManager(root);
   const commands: DetectedProject["commands"] = {};
-
   if (stack === "node" && hasPackageJson) {
     const pkg = await fs.readJson(path.join(root, "package.json"));
     const scripts = pkg.scripts ?? {};
-    if (packageManager !== "unknown") commands.install = `${packageManager} install`;
-    if (scripts.lint) commands.lint = `${packageManager === "unknown" ? "npm" : packageManager} run lint`;
-    if (scripts.typecheck) commands.typecheck = `${packageManager === "unknown" ? "npm" : packageManager} run typecheck`;
-    if (scripts.test) commands.test = `${packageManager === "unknown" ? "npm" : packageManager} test`;
-    if (scripts.build) commands.build = `${packageManager === "unknown" ? "npm" : packageManager} run build`;
+    const pm = packageManager === "unknown" ? "npm" : packageManager;
+    commands.install = `${pm} install`;
+    if (scripts.lint) commands.lint = `${pm} run lint`;
+    if (scripts.typecheck) commands.typecheck = `${pm} run typecheck`;
+    if (scripts.test) commands.test = `${pm} test`;
+    if (scripts.build) commands.build = `${pm} run build`;
   }
+  if (stack === "python") Object.assign(commands, { install: "uv sync", lint: "ruff check .", typecheck: "mypy .", test: "pytest", build: "python -m build" });
+  if (stack === "go") Object.assign(commands, { install: "go mod download", lint: "go vet ./...", test: "go test ./...", build: "go build ./..." });
+  if (stack === "rust") Object.assign(commands, { install: "cargo fetch", lint: "cargo clippy -- -D warnings", typecheck: "cargo fmt --check", test: "cargo test", build: "cargo build" });
 
   return { stack, packageManager, commands };
 }
