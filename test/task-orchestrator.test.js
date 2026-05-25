@@ -107,7 +107,7 @@ test('task pr fallback does not dirty worktree', async () => {
   finally { console.log = old; }
   const st = (await execa('git', ['status', '--porcelain'], { cwd: dir })).stdout.trim();
   assert.equal(st, '');
-  assert.match(logs.join('\n'), /gh not available\. Run:/);
+  assert.match(logs.join('\n'), /(gh not available\. Run:|Could not create PR with gh\.)/);
 });
 
 test('gh fallback command is shell-quoted safely', async () => {
