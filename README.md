@@ -89,3 +89,10 @@ ai-harness task pr user-auth --draft
 ```
 
 Artifacts under `.ai/tasks/<task-id>` capture prompt, bounded context, implementation notes, test evidence, Codex review, hardening instructions, and PR body. Claude is responsible for implementation/hardening; Codex is responsible for review-only feedback. Commit/PR commands enforce branch, clean-tree, checks, and review gates. If `gh` is unavailable, `task pr` prints a safe fallback command.
+
+Task safety notes:
+
+- `ai-harness task create --no-branch` keeps you on the current branch and records that branch in `task.yaml`.
+- `ai-harness task commit` inspects full worktree changes (including untracked files) and refuses to commit likely secret files like `.env`, `*.pem`, `*.key`, `id_rsa`, `credentials.json`, or `secrets.yml`.
+- If no project checks are configured/applicable (for example non-Node repos), checks are marked `skipped` and `tests.md` explains why.
+- `ai-harness task pr` requires a clean tree and will refuse to open a PR if generating PR artifacts changes files; commit generated artifacts first, then rerun.

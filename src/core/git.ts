@@ -16,6 +16,23 @@ export async function hasCleanWorkingTree(cwd: string): Promise<boolean> {
 export async function createBranch(branch: string, cwd: string): Promise<void> { await git(["checkout", "-b", branch], cwd); }
 export async function branchExists(branch: string, cwd: string): Promise<boolean> { try { await git(["show-ref", "--verify", "--quiet", `refs/heads/${branch}`], cwd); return true; } catch { return false; } }
 export async function getChangedFiles(cwd: string): Promise<string[]> { const { stdout } = await git(["diff", "--name-only"], cwd); return stdout.split("\n").map((x) => x.trim()).filter(Boolean); }
+export async function getWorktreeChangedFiles(cwd: string): Promise<string[]> {
+  const { stdout } = await git(["status", "--porcelain"], cwd);
+  const files = new Set<string>();
+  for (const rawLine of stdout.split("\n").filter(Boolean)) {
+    const line = rawLine.trimEnd();
+    const payload = line.slice(3);
+    if (!payload) continue;
+    if (payload.includes(" -> ")) {
+      const [oldPath, newPath] = payload.split(" -> ");
+      if (oldPath) files.add(oldPath);
+      if (newPath) files.add(newPath);
+      continue;
+    }
+    files.add(payload);
+  }
+  return [...files];
+}
 export async function getDiff(base: string, cwd: string): Promise<string> { const { stdout } = await git(["diff", `${base}...HEAD`], cwd); return stdout; }
 export async function commitAll(message: string, cwd: string): Promise<string> {
   await git(["add", "-A"], cwd);
@@ -23,4 +40,9 @@ export async function commitAll(message: string, cwd: string): Promise<string> {
   const { stdout } = await git(["rev-parse", "HEAD"], cwd);
   return stdout.trim();
 }
-export async function branchExistsAny(name: string, cwd: string): Promise<boolean> { return branchExists(name, cwd); }
+export async function amendAll(cwd: string): Promise<string> {
+  await git(["add", "-A"], cwd);
+  await git(["commit", "--amend", "--no-edit"], cwd);
+  const { stdout } = await git(["rev-parse", "HEAD"], cwd);
+  return stdout.trim();
+}

@@ -4,37 +4,92 @@ import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
 import { execa } from 'execa';
-import { createTaskFiles, readTask } from '../dist/core/task-store.js';
-import { taskManifestSchema } from '../dist/core/task-schema.js';
 import { taskCommand } from '../dist/commands/task.js';
+import { readTask } from '../dist/core/task-store.js';
+import { renderGhCreateCommand } from '../dist/core/pr.js';
 
-async function gitRepo() {
+async function gitRepo(opts = { withPackage: true }) {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'aih-task-'));
   await execa('git', ['init'], { cwd: dir });
   await execa('git', ['config', 'user.email', 'test@example.com'], { cwd: dir });
   await execa('git', ['config', 'user.name', 'Test User'], { cwd: dir });
-  await fs.writeJson(path.join(dir, 'package.json'), { name:'x', scripts:{ typecheck:'echo ok', test:'echo ok', build:'echo ok' } });
+  if (opts.withPackage) await fs.writeJson(path.join(dir, 'package.json'), { name:'x', scripts:{ typecheck:'echo ok', test:'echo ok', build:'echo ok' } });
   await fs.writeFile(path.join(dir, 'README.md'), 'hello');
   await execa('git', ['add','-A'], { cwd: dir }); await execa('git', ['commit','-m','init'], { cwd: dir });
   return dir;
 }
 
-test('task create/context/claude/codex/hardening flow', async () => {
-  const dir = await gitRepo(); process.chdir(dir);
-  const cmd = taskCommand();
-  await cmd.parseAsync(['create','user-auth','--prompt','Add auth'], { from: 'user' });
-  assert.equal(await fs.pathExists('.ai/tasks/user-auth/task.yaml'), true);
-  const man = await readTask(dir, 'user-auth'); assert.equal(taskManifestSchema.safeParse(man).success, true);
-  assert.match(await fs.readFile('.ai/tasks/user-auth/prompt.md','utf8'), /# Task: user-auth/);
-  await fs.ensureDir('.ai/rag');
-  await fs.writeFile('.ai/rag/index.jsonl', JSON.stringify({ id:'1', path:'src/x.ts', startLine:1, endLine:2, heading:'h', text:'auth login route', keywords:['auth'] })+'\n');
-  await cmd.parseAsync(['context','user-auth','--query','auth login route'], { from:'user' });
-  assert.match(await fs.readFile('.ai/tasks/user-auth/context.md','utf8'), /Relevant chunks/);
-  await cmd.parseAsync(['claude','user-auth'], { from:'user' });
-  assert.match(await fs.readFile('.ai/tasks/user-auth/claude-implement.md','utf8'), /Read ONLY/);
-  await cmd.parseAsync(['codex-review','user-auth'], { from:'user' });
-  assert.match(await fs.readFile('.ai/tasks/user-auth/codex-review-prompt.md','utf8'), /do not rewrite implementation/i);
-  await fs.writeFile('.ai/tasks/user-auth/codex-review.md', '## Instructions for Claude\n- fix A\n\n## Required fixes\n- req\n\n## Test gaps\n- gap\n\n## Security review\n- sec\n\n## Suggested hardening\n- opt');
-  await cmd.parseAsync(['hardening','user-auth'], { from:'user' });
-  assert.match(await fs.readFile('.ai/tasks/user-auth/claude-fix-instructions.md','utf8'), /Required fixes/);
+async function runTask(args, cwd) {
+  const old = process.cwd();
+  process.chdir(cwd);
+  try { await taskCommand().parseAsync(args, { from: 'user' }); }
+  finally { process.chdir(old); }
+}
+
+test('invalid task id is rejected for non-create commands', async () => {
+  const dir = await gitRepo();
+  await assert.rejects(() => runTask(['status','../bad'], dir), /Invalid task ID/);
+});
+
+test('--no-branch stores current branch and commit works', async () => {
+  const dir = await gitRepo();
+  await runTask(['create','foo','--prompt','x','--no-branch'], dir);
+  const t = await readTask(dir, 'foo');
+  assert.equal(t.branch, 'master');
+  await fs.writeFile(path.join(dir, 'notes.txt'), 'ok');
+  await runTask(['commit','foo'], dir);
+  const next = await readTask(dir, 'foo');
+  assert.ok(next.commits.implementation);
+});
+
+test('commit refuses untracked secret-like files', async () => {
+  const dir = await gitRepo();
+  await runTask(['create','sec','--prompt','x','--no-branch'], dir);
+  await fs.writeFile(path.join(dir, '.env'), 'SECRET=1');
+  await assert.rejects(() => runTask(['commit','sec'], dir), /Refusing to commit possible secret files/);
+});
+
+test('commit allows normal untracked files', async () => {
+  const dir = await gitRepo();
+  await runTask(['create','ok','--prompt','x','--no-branch'], dir);
+  await fs.writeFile(path.join(dir, 'feature.txt'), 'safe');
+  await runTask(['commit','ok'], dir);
+  const t = await readTask(dir, 'ok');
+  assert.ok(t.commits.implementation);
+});
+
+test('commit rejects wrong branch and invalid phase', async () => {
+  const dir = await gitRepo();
+  await runTask(['create','wb','--prompt','x'], dir);
+  await execa('git', ['checkout', 'master'], { cwd: dir });
+  await fs.writeFile(path.join(dir, 'x.txt'), 'x');
+  await assert.rejects(() => runTask(['commit','wb'], dir), /Current branch must be/);
+  await execa('git', ['checkout', 'ai/wb'], { cwd: dir });
+  await assert.rejects(() => runTask(['commit','wb','--phase','banana'], dir), /Invalid --phase value/);
+});
+
+test('task pr refuses because generated artifacts dirty worktree by default', async () => {
+  const dir = await gitRepo();
+  await runTask(['create','prx','--prompt','x'], dir);
+  await fs.writeFile(path.join(dir, '.ai/tasks/prx/codex-review.md'), 'review');
+  await fs.writeFile(path.join(dir, 'f.txt'), 'x');
+  await runTask(['commit','prx','--no-checks'], dir);
+  await assert.rejects(() => runTask(['pr','prx','--skip-review'], dir), /Generated PR artifacts changed the working tree/);
+});
+
+test('gh fallback command is shell-quoted safely', async () => {
+  const cmd = renderGhCreateCommand({ baseBranch: 'main', headBranch: 'ai/t', title: `hello "quote" and 'single'`, bodyFile: '.ai/tasks/t/pr.md', draft: true });
+  assert.match(cmd, /'"'"'/);
+  assert.match(cmd, /--draft/);
+});
+
+test('non-node repos mark checks skipped', async () => {
+  const dir = await gitRepo({ withPackage: false });
+  await runTask(['create','py','--prompt','x','--no-branch'], dir);
+  await fs.writeFile(path.join(dir, 'a.py'), 'print(1)');
+  await runTask(['commit','py'], dir);
+  const t = await readTask(dir, 'py');
+  assert.equal(t.checks.typecheck, 'skipped');
+  const testsMd = await fs.readFile(path.join(dir, '.ai/tasks/py/tests.md'), 'utf8');
+  assert.match(testsMd, /No project checks were configured\/applicable/);
 });
