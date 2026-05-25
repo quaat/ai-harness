@@ -94,10 +94,10 @@ payload="$(cat)"
 cmd="$(printf '%s' "$payload" | jq -r '.tool_input.command // ""')"
 blocked_regex='(^|[;&|[:space:]])rm[[:space:]]+-rf([[:space:]]|$)|git[[:space:]]+reset[[:space:]]+--hard|git[[:space:]]+clean[[:space:]]+-fd|docker[[:space:]]+system[[:space:]]+prune'
 if [[ "$cmd" =~ $blocked_regex ]]; then
-  printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Blocked potentially destructive command: %s"}}\n' "$cmd"
+  jq -n --arg cmd "$cmd" '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":("Blocked potentially destructive command: " + $cmd)}}'
   exit 0
 fi
-printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}\n'
+jq -n '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}'
 `, safePolicy, Boolean(options.dryRun), changes);
   await writeManaged(root, ".claude/hooks/after-edit-check.sh", `#!/usr/bin/env bash
 set -euo pipefail

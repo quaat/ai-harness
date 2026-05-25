@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs-extra';
 import os from 'node:os';
 import path from 'node:path';
+import { spawnSync } from 'node:child_process';
 import YAML from 'yaml';
 import { scaffoldHarness } from '../dist/core/scaffold.js';
 import { buildIndex } from '../dist/core/rag.js';
@@ -37,6 +38,21 @@ test('claude settings and hooks are generated with expected schema and executabi
   assert.match(pre, /tool_input\.command/);
   const mode = (await fs.stat(path.join(dir, '.claude/hooks/block-dangerous-bash.sh'))).mode & 0o777;
   assert.equal(mode, 0o755);
+});
+
+test('dangerous bash hook denies destructive commands from stdin JSON', async () => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'aih-hook-run-'));
+  await scaffoldHarness(dir, detected, { agents: ['codex', 'claude'], rag: 'local-jsonl', force: true });
+  const hookPath = path.join(dir, '.claude/hooks/block-dangerous-bash.sh');
+  const input = JSON.stringify({ tool_input: { command: 'rm -rf /tmp/demo' } });
+  const result = spawnSync(hookPath, {
+    input,
+    encoding: 'utf8'
+  });
+  assert.equal(result.status, 0);
+  const output = JSON.parse(result.stdout.trim());
+  assert.equal(output.hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(output.hookSpecificOutput.permissionDecisionReason, /Blocked potentially destructive command/);
 });
 
 test('rag applies include/exclude and skips secrets', async () => {
