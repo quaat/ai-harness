@@ -1,13 +1,12 @@
 import { detectProject } from "../core/project-detector.js";
-import { scaffoldHarness } from "../core/scaffold.js";
+import { dryRunReport, scaffoldHarness } from "../core/scaffold.js";
 
-export async function retrofitCommand(dryRun = false) {
+export async function retrofitCommand(opts: { dryRun?: boolean; merge?: boolean; force?: boolean }) {
   const detected = await detectProject(process.cwd());
-  if (dryRun) {
-    console.log("Would create: AGENTS.md, CLAUDE.md, .ai/*, .claude/*, scripts/rag/*");
-    console.log(`Detected stack: ${detected.stack}, package manager: ${detected.packageManager}`);
+  const changes = await scaffoldHarness(process.cwd(), detected, { agents: ["codex", "claude"], rag: "local-jsonl", merge: Boolean(opts.merge), force: Boolean(opts.force), dryRun: Boolean(opts.dryRun) });
+  if (opts.dryRun) {
+    await dryRunReport(process.cwd(), changes);
     return;
   }
-  await scaffoldHarness(process.cwd(), detected, { agents: ["codex", "claude"], rag: "local-jsonl", merge: true });
   console.log("Retrofitted repository with ai-harness files.");
 }
