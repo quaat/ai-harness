@@ -67,3 +67,25 @@ Known limitations:
 - local keyword search is lexical (not semantic), so query phrasing matters.
 - ranking is heuristic and may miss intent if symbols are renamed or uncommon.
 - large repos may still require multiple focused queries to converge quickly.
+
+## Task orchestration
+
+`ai-harness task` provides a deterministic Git-native workflow using `.ai/tasks/<task-id>/task.yaml` as source of truth.
+
+Flow:
+
+```bash
+ai-harness task create user-auth --prompt "Add email/password authentication with protected routes"
+ai-harness task context user-auth
+ai-harness task claude user-auth
+# run Claude manually
+ai-harness task commit user-auth
+ai-harness task codex-review user-auth
+# run Codex manually
+ai-harness task hardening user-auth
+# run Claude manually
+ai-harness task commit user-auth --phase hardening
+ai-harness task pr user-auth --draft
+```
+
+Artifacts under `.ai/tasks/<task-id>` capture prompt, bounded context, implementation notes, test evidence, Codex review, hardening instructions, and PR body. Claude is responsible for implementation/hardening; Codex is responsible for review-only feedback. Commit/PR commands enforce branch, clean-tree, checks, and review gates. If `gh` is unavailable, `task pr` prints a safe fallback command.
