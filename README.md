@@ -48,3 +48,22 @@ Configure in `ai-harness.config.yaml`:
 - `rag.exclude`: extra paths to exclude (in addition to built-in safety exclusions)
 
 Markdown is chunked by headings, while code/data files are chunked by line windows.
+
+## Minimizing Claude tokens
+
+`ai-harness search` exists to keep Claude (and other agents) retrieval-first: find the smallest relevant context before opening files.
+
+Recommended flow:
+
+1. `ai-harness index`
+2. `ai-harness search "<feature or error>"`
+3. inspect only the returned file paths and line ranges
+4. record findings in `.ai/retrieval-notes/`
+
+Generated projects include a Claude retrieval nudge hook (`Read|Glob|Grep`) that allows tool use, but adds context reminding Claude to search first when a broad read is detected.
+
+Known limitations:
+
+- local keyword search is lexical (not semantic), so query phrasing matters.
+- ranking is heuristic and may miss intent if symbols are renamed or uncommon.
+- large repos may still require multiple focused queries to converge quickly.

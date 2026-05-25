@@ -8,5 +8,11 @@ export async function searchCommand(query: string, opts: { json?: boolean; topK?
     return;
   }
   if (!limited.length) return console.log("No results.");
-  for (const r of limited) console.log(`${r.path}:${r.startLine}-${r.endLine} [${r.heading}]\n${r.text.slice(0, 160)}\n`);
+  for (const [i, r] of limited.entries()) {
+    console.log(`#${i + 1} ${r.path}:${r.startLine}-${r.endLine}`);
+    console.log(`Heading: ${r.heading}`);
+    console.log(`Snippet: ${r.text.slice(0, 160)}`);
+    console.log("");
+  }
+  console.log("Read only these paths/line ranges unless more context is needed.");
 }
