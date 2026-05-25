@@ -40,9 +40,3 @@ export async function commitAll(message: string, cwd: string): Promise<string> {
   const { stdout } = await git(["rev-parse", "HEAD"], cwd);
   return stdout.trim();
 }
-export async function amendAll(cwd: string): Promise<string> {
-  await git(["add", "-A"], cwd);
-  await git(["commit", "--amend", "--no-edit"], cwd);
-  const { stdout } = await git(["rev-parse", "HEAD"], cwd);
-  return stdout.trim();
-}

@@ -7,7 +7,7 @@ import { createPullRequest } from "../core/pr.js";
 import { artifactPaths, createTaskFiles, readTask, writeTask } from "../core/task-store.js";
 import { validateTaskId, type TaskManifest } from "../core/task-schema.js";
 import { suggestNext } from "../core/task-state.js";
-import { amendAll, branchExists, createBranch, currentBranch, getWorktreeChangedFiles, hasCleanWorkingTree, isGitRepo, commitAll } from "../core/git.js";
+import { branchExists, createBranch, currentBranch, getWorktreeChangedFiles, hasCleanWorkingTree, isGitRepo, commitAll } from "../core/git.js";
 import { renderClaudePrompt, renderCodexReviewPrompt } from "../core/prompt-renderer.js";
 
 const secretRegex = /(^|\/)(\.env(\..+)?|.*\.pem|.*\.key|id_rsa|id_ed25519|credentials\.json|secrets\.(yml|yaml|json|env))$/i;
@@ -70,14 +70,14 @@ async function commitTask(taskId: string, opts: { phase: string; checks?: boolea
     else t.checks = { typecheck: results.find((r) => r.name === "typecheck")?.ok ? "passed" : "failed", test: results.find((r) => r.name === "test")?.ok ? "passed" : "failed", build: results.find((r) => r.name === "build")?.ok ? "passed" : "failed" };
   }
   const msg = phase === "hardening" ? `fix(${taskId}): address Codex review feedback\n\nTask: ${taskId}\nReview: ${t.artifacts.codexReview}\nHardening: ${t.artifacts.hardening}\nTests: ${t.artifacts.tests}` : `feat(${taskId}): implement task\n\nTask: ${taskId}\nPrompt: ${t.artifacts.prompt}\nImplementation: ${t.artifacts.implementation}\nTests: ${t.artifacts.tests}`;
-  const initialSha = await commitAll(msg, cwd);
-  t.commits[phase] = initialSha;
+  const implementationSha = await commitAll(msg, cwd);
+  t.commits[phase] = implementationSha;
   t.status = phase === "hardening" ? "hardened" : "committed";
   await writeTask(cwd, t);
-  const amendedSha = await amendAll(cwd);
-  t.commits[phase] = amendedSha;
-  await writeTask(cwd, t);
-  await amendAll(cwd);
+  const metaMsg = phase === "hardening"
+    ? `chore(${taskId}): record hardening task metadata`
+    : `chore(${taskId}): record implementation task metadata`;
+  await commitAll(metaMsg, cwd);
 }
 
 async function prTask(taskId: string, opts: { draft?: boolean; skipReview?: boolean }) {

@@ -31,15 +31,29 @@ test('invalid task id is rejected for non-create commands', async () => {
   await assert.rejects(() => runTask(['status','../bad'], dir), /Invalid task ID/);
 });
 
-test('--no-branch stores current branch and commit works', async () => {
+test('implementation commit records valid non-stale SHA', async () => {
   const dir = await gitRepo();
   await runTask(['create','foo','--prompt','x','--no-branch'], dir);
-  const t = await readTask(dir, 'foo');
-  assert.equal(t.branch, 'master');
   await fs.writeFile(path.join(dir, 'notes.txt'), 'ok');
   await runTask(['commit','foo'], dir);
-  const next = await readTask(dir, 'foo');
-  assert.ok(next.commits.implementation);
+  const t = await readTask(dir, 'foo');
+  assert.ok(t.commits.implementation);
+  await execa('git', ['cat-file', '-e', t.commits.implementation], { cwd: dir });
+  const log = (await execa('git', ['log', '--pretty=%s', '-n', '2'], { cwd: dir })).stdout;
+  assert.match(log, /chore\(foo\): record implementation task metadata/);
+  assert.match(log, /feat\(foo\): implement task/);
+});
+
+test('hardening commit records valid SHA', async () => {
+  const dir = await gitRepo();
+  await runTask(['create','hard','--prompt','x','--no-branch'], dir);
+  await fs.writeFile(path.join(dir, 'a.txt'), '1');
+  await runTask(['commit','hard'], dir);
+  await fs.writeFile(path.join(dir, 'b.txt'), '2');
+  await runTask(['commit','hard','--phase','hardening'], dir);
+  const t = await readTask(dir, 'hard');
+  assert.ok(t.commits.hardening);
+  await execa('git', ['cat-file', '-e', t.commits.hardening], { cwd: dir });
 });
 
 test('commit refuses untracked secret-like files', async () => {
@@ -75,6 +89,25 @@ test('task pr refuses because generated artifacts dirty worktree by default', as
   await fs.writeFile(path.join(dir, 'f.txt'), 'x');
   await runTask(['commit','prx','--no-checks'], dir);
   await assert.rejects(() => runTask(['pr','prx','--skip-review'], dir), /Generated PR artifacts changed the working tree/);
+});
+
+test('task pr fallback does not dirty worktree', async () => {
+  const dir = await gitRepo();
+  await runTask(['create','prclean','--prompt','x'], dir);
+  await fs.writeFile(path.join(dir, '.ai/tasks/prclean/codex-review.md'), 'review');
+  await fs.writeFile(path.join(dir, 'f.txt'), 'x');
+  await runTask(['commit','prclean','--no-checks'], dir);
+  await assert.rejects(() => runTask(['pr','prclean','--skip-review'], dir), /Generated PR artifacts changed the working tree/);
+  await execa('git', ['add', '-A'], { cwd: dir });
+  await execa('git', ['commit', '-m', 'chore: commit pr artifacts'], { cwd: dir });
+  const logs = [];
+  const old = console.log;
+  console.log = (m) => logs.push(String(m));
+  try { await runTask(['pr','prclean','--skip-review'], dir); }
+  finally { console.log = old; }
+  const st = (await execa('git', ['status', '--porcelain'], { cwd: dir })).stdout.trim();
+  assert.equal(st, '');
+  assert.match(logs.join('\n'), /gh not available\. Run:/);
 });
 
 test('gh fallback command is shell-quoted safely', async () => {
